@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
 
-bun run src/index.ts
+DIR="$(dirname "$(realpath "$0")")"
+
+bun run $DIR/src/index.ts
