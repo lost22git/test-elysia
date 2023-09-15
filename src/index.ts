@@ -97,14 +97,17 @@ const db = (app: Elysia) => app.state("db", prisma)
 
 // ------ Model --------------
 
+const name_pattern = '^[\u4E00-\u9FA5A-Za-z]([\u4E00-\u9FA5A-Za-z0-9_ \-]*[\u4E00-\u9FA5A-Za-z0-9])?$'
+const name_pattern_desc = "中文或英文开头，中文或英文或数字结尾，中间允许空格或 '-' 或 '_'"
+
 const FighterCreate = t.Object({
   name: t.String({
-    pattern: '^[\u4E00-\u9FA5A-Za-z]([\u4E00-\u9FA5A-Za-z0-9_ \-]*[\u4E00-\u9FA5A-Za-z0-9])?$',
-    error: "name: 名称格式错误, 要求：中文或英文开头，中文或英文或数字结尾，中间允许空格或 '-' 或 '_'"
+    pattern: name_pattern,
+    error: `name: 名称格式错误, 要求：${name_pattern_desc}`
   }),
   skill: t.Array(t.String({
-    pattern: '^[\u4E00-\u9FA5A-Za-z]([\u4E00-\u9FA5A-Za-z0-9_ \-]*[\u4E00-\u9FA5A-Za-z0-9])?$',
-    error: "skill: 技能名称格式错误, 要求：中文或英文开头，中文或英文或数字结尾，中间允许空格或 '-' 或 '_'"
+    pattern: name_pattern,
+    error: `skill: 技能名称格式错误, 要求：${name_pattern_desc}`
   }))
 }
 )
@@ -112,8 +115,8 @@ const FighterCreate = t.Object({
 const FighterEdit = t.Object({
   name: t.String(),
   skill: t.Array(t.String({
-    pattern: '^[\u4E00-\u9FA5A-Za-z]([\u4E00-\u9FA5A-Za-z0-9_ \-]*[\u4E00-\u9FA5A-Za-z0-9])?$',
-    error: "skill: 技能名称格式错误, 要求：中文或英文开头，中文或英文或数字结尾，中间允许空格或 '-' 或 '_'"
+    pattern: name_pattern,
+    error: `skill: 技能名称格式错误, 要求：${name_pattern_desc}`
   }
   ))
 }
@@ -195,9 +198,6 @@ new Elysia()
       })
       .post("", async ({ body, store: { db } }) => {
         const fighter_create = body
-        if (fighter_create?.name === "" || fighter_create?.name === undefined) {
-          throw new Error("VALIDATION")
-        }
         const fighter_inserted = await db.fighter.create({
           data: {
             name: fighter_create.name,
@@ -214,9 +214,6 @@ new Elysia()
       })
       .put("", async ({ body, store: { db } }) => {
         const fighter_edit = body
-        if (fighter_edit?.name === "" || fighter_edit?.name === undefined) {
-          throw new Error("VALIDATION")
-        }
         const fighter_updated = await db.fighter.update({
           where: { name: fighter_edit.name },
           data: { skill: fighter_edit.skill?.join(",") || "", updated_at: new Date() }
