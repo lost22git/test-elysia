@@ -1,4 +1,4 @@
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 import { swagger } from '@elysiajs/swagger'
 import { cors } from '@elysiajs/cors'
 import { PrismaClient } from '@prisma/client'
@@ -45,15 +45,15 @@ function err<T>(code: number, msg: string): Result<T> {
 //   }
 // }
 
-type FighterCreate = {
-  name: string;
-  skill: string[];
-}
-
-type FighterEdit = {
-  name: string;
-  skill: string[];
-}
+// type FighterCreate = {
+//   name: string;
+//   skill: string[];
+// }
+//
+// type FighterEdit = {
+//   name: string;
+//   skill: string[];
+// }
 
 // function toFighter(a: FighterCreate): Fighter {
 //   return new Fighter({ name: a.name, skill: a.skill })
@@ -68,6 +68,8 @@ type StartupInfo = {
 const startup_info: StartupInfo = { pid: process.pid, port: 3000, bun_version: Bun.version }
 console.log(`Startup info: ${JSON.stringify(startup_info)}`)
 
+
+// ------ DB -----------------
 
 const prisma = new PrismaClient({
   // log: ["query", "info", "warn", "error"]
@@ -90,22 +92,67 @@ for (const v of initData) {
 console.log("初始化数据，完成")
 
 
-const db = (app: Elysia) => app.decorate("db", prisma)
+const db = (app: Elysia) => app.state("db", prisma)
+
+
+// ------ Model --------------
+
+const FighterCreate = t.Object({
+  name: t.String({
+    pattern: '^[\u4E00-\u9FA5A-Za-z]([\u4E00-\u9FA5A-Za-z0-9_ \-]*[\u4E00-\u9FA5A-Za-z0-9])?$',
+    error: "name: 名称格式错误, 要求：中文或英文开头，中文或英文或数字结尾，中间允许空格或 '-' 或 '_'"
+  }),
+  skill: t.Array(t.String({
+    pattern: '^[\u4E00-\u9FA5A-Za-z]([\u4E00-\u9FA5A-Za-z0-9_ \-]*[\u4E00-\u9FA5A-Za-z0-9])?$',
+    error: "skill: 技能名称格式错误, 要求：中文或英文开头，中文或英文或数字结尾，中间允许空格或 '-' 或 '_'"
+  }))
+}
+)
+
+const FighterEdit = t.Object({
+  name: t.String(),
+  skill: t.Array(t.String({
+    pattern: '^[\u4E00-\u9FA5A-Za-z]([\u4E00-\u9FA5A-Za-z0-9_ \-]*[\u4E00-\u9FA5A-Za-z0-9])?$',
+    error: "skill: 技能名称格式错误, 要求：中文或英文开头，中文或英文或数字结尾，中间允许空格或 '-' 或 '_'"
+  }
+  ))
+}
+)
+
+// ------ Server -------------
 
 new Elysia()
-  .use(swagger())
+  .use(swagger({
+    path: "/about/swagger"
+  }))
   .use(cors())
   .group("/about", app =>
     app
       .get("", ({ request }) => {
         return [
           "/startupinfo",
+          "/swagger",
           "/heapstats",
           "/heapdump"
         ].map(v => request.url + v)
+      }, {
+        detail: {
+          summary: "查询 about 所有链接",
+          tags: ["about"]
+        }
       })
-      .get("/startupinfo", () => startup_info)
-      .get("/heapstats", () => heapStats())
+      .get("/startupinfo", () => startup_info, {
+        detail: {
+          summary: "查询启动信息",
+          tags: ["about"]
+        }
+      })
+      .get("/heapstats", () => heapStats(), {
+        detail: {
+          summary: "查询 js heap stats",
+          tags: ["about"]
+        }
+      })
       .get("/heapdump", () => {
         const snapshot = generateHeapSnapshot();
         return new Response(
@@ -116,22 +163,38 @@ new Elysia()
             }
           }
         )
-      })
+      }, {
+        detail: {
+          summary: "下载 js heap dump 文件",
+          tags: ["about"]
+        }
+      }
+      )
   )
-  .use(db)
   .group("/fighter", app =>
     app
-      .get("", async () => {
-        const all = await prisma.fighter.findMany()
+      .use(db)
+      .get("", async ({ store: { db } }) => {
+        const all = await db.fighter.findMany()
         return ok(all)
+      }, {
+        detail: {
+          summary: "查询所有 fighter",
+          tags: ["fighter"]
+        }
       })
-      .get("/:name", async ({ params, db }) => {
+      .get("/:name", async ({ params, store: { db } }) => {
         const name = decodeURI(params.name)
         const found = await db.fighter.findUnique({ where: { name: name } })
         return ok(found)
+      }, {
+        detail: {
+          summary: "查询 fighter, by name",
+          tags: ["fighter"]
+        }
       })
-      .post("", async ({ request, db }) => {
-        const fighter_create: FighterCreate = await request.json()
+      .post("", async ({ body, store: { db } }) => {
+        const fighter_create = body
         if (fighter_create?.name === "" || fighter_create?.name === undefined) {
           throw new Error("VALIDATION")
         }
@@ -142,9 +205,15 @@ new Elysia()
           }
         })
         return ok(fighter_inserted)
+      }, {
+        body: FighterCreate,
+        detail: {
+          summary: "新增一个 fighter",
+          tags: ["fighter"]
+        }
       })
-      .put("", async ({ request, db }) => {
-        const fighter_edit: FighterEdit = await request.json()
+      .put("", async ({ body, store: { db } }) => {
+        const fighter_edit = body
         if (fighter_edit?.name === "" || fighter_edit?.name === undefined) {
           throw new Error("VALIDATION")
         }
@@ -153,11 +222,22 @@ new Elysia()
           data: { skill: fighter_edit.skill?.join(",") || "", updated_at: new Date() }
         })
         return ok(fighter_updated)
+      }, {
+        body: FighterEdit,
+        detail: {
+          summary: "编辑一个 fighter",
+          tags: ["fighter"]
+        }
       })
-      .delete("/:name", async ({ params, db }) => {
+      .delete("/:name", async ({ params, store: { db } }) => {
         const name = decodeURI(params.name)
         const fighter_deleted = await db.fighter.delete({ where: { name: name } })
         return ok(fighter_deleted)
+      }, {
+        detail: {
+          summary: "删除一个 fighter",
+          tags: ["fighter"]
+        }
       })
   )
   .listen(startup_info.port);
