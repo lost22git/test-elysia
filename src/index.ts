@@ -106,7 +106,7 @@ new Elysia()
       })
       .get("/startupinfo", () => startup_info)
       .get("/heapstats", () => heapStats())
-      .get("/heapdump", async () => {
+      .get("/heapdump", () => {
         const snapshot = generateHeapSnapshot();
         return new Response(
           JSON.stringify(snapshot, null, 2),
