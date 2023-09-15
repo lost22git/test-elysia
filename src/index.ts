@@ -1,6 +1,9 @@
 import { Elysia } from "elysia";
 import { swagger } from '@elysiajs/swagger'
 import { cors } from '@elysiajs/cors'
+import { PrismaClient } from '@prisma/client'
+import { heapStats } from "bun:jsc";
+import { generateHeapSnapshot } from "bun";
 
 class Result<T>{
   data?: T;
@@ -22,24 +25,25 @@ function err<T>(code: number, msg: string): Result<T> {
   return { code: code, msg: msg }
 }
 
-class Fighter {
-  id: string;
-  name: string;
-  skill: string[];
-  created_at: Date;
-  updated_at?: Date;
 
-  constructor(
-    { id = crypto.randomUUID(), name, skill, created_at = new Date(), updated_at }:
-      { id?: string, name: string, skill: string[], created_at?: Date, updated_at?: Date }
-  ) {
-    this.id = id
-    this.name = name
-    this.skill = skill
-    this.created_at = created_at
-    this.updated_at = updated_at
-  }
-}
+// class Fighter {
+//   id: string;
+//   name: string;
+//   skill: string[];
+//   created_at: Date;
+//   updated_at?: Date;
+//
+//   constructor(
+//     { id = crypto.randomUUID(), name, skill, created_at = new Date(), updated_at }:
+//       { id?: string, name: string, skill: string[], created_at?: Date, updated_at?: Date }
+//   ) {
+//     this.id = id
+//     this.name = name
+//     this.skill = skill
+//     this.created_at = created_at
+//     this.updated_at = updated_at
+//   }
+// }
 
 type FighterCreate = {
   name: string;
@@ -51,15 +55,9 @@ type FighterEdit = {
   skill: string[];
 }
 
-function toFighter(a: FighterCreate): Fighter {
-  return new Fighter({ name: a.name, skill: a.skill })
-}
-
-var fighters = [
-  new Fighter({ name: "隆", skill: ["波动拳"] }),
-  new Fighter({ name: "肯", skill: ["升龙拳"] }),
-]
-
+// function toFighter(a: FighterCreate): Fighter {
+//   return new Fighter({ name: a.name, skill: a.skill })
+// }
 
 type StartupInfo = {
   pid: number;
@@ -70,49 +68,98 @@ type StartupInfo = {
 const startup_info: StartupInfo = { pid: process.pid, port: 3000, bun_version: Bun.version }
 console.log(`Startup info: ${JSON.stringify(startup_info)}`)
 
+
+const prisma = new PrismaClient({
+  // log: ["query", "info", "warn", "error"]
+  log: ["warn", "error"]
+})
+
+// 初始化数据
+console.log("初始化数据, 开始")
+await prisma.fighter.deleteMany({})
+const initData = [
+  { name: "隆", skill: ["波动拳"].join(",") },
+  { name: "肯", skill: ["升龙拳"].join(",") }
+
+]
+for (const v of initData) {
+  await prisma.fighter.create({
+    data: v
+  })
+}
+console.log("初始化数据，完成")
+
+
+const db = (app: Elysia) => app.decorate("db", prisma)
+
 new Elysia()
   .use(swagger())
   .use(cors())
+  .group("/about", app =>
+    app
+      .get("", ({ request }) => {
+        return [
+          "/startupinfo",
+          "/heapstats",
+          "/heapdump"
+        ].map(v => request.url + v)
+      })
+      .get("/startupinfo", () => startup_info)
+      .get("/heapstats", () => heapStats())
+      .get("/heapdump", async () => {
+        const snapshot = generateHeapSnapshot();
+        return new Response(
+          JSON.stringify(snapshot, null, 2),
+          {
+            headers: {
+              "Content-Disposition": 'attachment; filename="heapdump.json"'
+            }
+          }
+        )
+      })
+  )
+  .use(db)
   .group("/fighter", app =>
-    app.get("", () => ok(fighters))
-      .get("/:name", (env) => {
-        const name = decodeURI(env.params.name)
-        const found = fighters.filter(x => x.name === name)
+    app
+      .get("", async () => {
+        const all = await prisma.fighter.findMany()
+        return ok(all)
+      })
+      .get("/:name", async ({ params, db }) => {
+        const name = decodeURI(params.name)
+        const found = await db.fighter.findUnique({ where: { name: name } })
         return ok(found)
       })
-      .post("", async (env) => {
-        const fighter_create: FighterCreate = await env.request.json()
-
+      .post("", async ({ request, db }) => {
+        const fighter_create: FighterCreate = await request.json()
         if (fighter_create?.name === "" || fighter_create?.name === undefined) {
           throw new Error("VALIDATION")
         }
-
-        const new_fighter = toFighter(fighter_create)
-        fighters.push(new_fighter)
-        return ok(new_fighter)
+        const fighter_inserted = await db.fighter.create({
+          data: {
+            name: fighter_create.name,
+            skill: fighter_create.skill?.join(",") || ""
+          }
+        })
+        return ok(fighter_inserted)
       })
-      .put("", async (env) => {
-        const fighter_edit: FighterEdit = await env.request.json()
-
+      .put("", async ({ request, db }) => {
+        const fighter_edit: FighterEdit = await request.json()
         if (fighter_edit?.name === "" || fighter_edit?.name === undefined) {
           throw new Error("VALIDATION")
         }
-        var found = fighters.find(x => x.name === fighter_edit.name)
-        if (found === null || found === undefined) {
-          throw new Error("NOT_FOUND")
-        }
-
-        found.skill = fighter_edit.skill
-        found.updated_at = new Date()
-        return ok(found)
+        const fighter_updated = await db.fighter.update({
+          where: { name: fighter_edit.name },
+          data: { skill: fighter_edit.skill?.join(",") || "", updated_at: new Date() }
+        })
+        return ok(fighter_updated)
       })
-      .delete("/:name", (env) => {
-        const name = decodeURI(env.params.name)
-        const found = fighters.filter(x => x.name === name)
-        fighters = fighters.filter(x => x.name !== name)
-        return ok(found)
+      .delete("/:name", async ({ params, db }) => {
+        const name = decodeURI(params.name)
+        const fighter_deleted = await db.fighter.delete({ where: { name: name } })
+        return ok(fighter_deleted)
       })
   )
-  .listen(3000);
+  .listen(startup_info.port);
 
 
