@@ -25,40 +25,6 @@ function err<T>(code: number, msg: string): Result<T> {
   return { code: code, msg: msg }
 }
 
-
-// class Fighter {
-//   id: string;
-//   name: string;
-//   skill: string[];
-//   created_at: Date;
-//   updated_at?: Date;
-//
-//   constructor(
-//     { id = crypto.randomUUID(), name, skill, created_at = new Date(), updated_at }:
-//       { id?: string, name: string, skill: string[], created_at?: Date, updated_at?: Date }
-//   ) {
-//     this.id = id
-//     this.name = name
-//     this.skill = skill
-//     this.created_at = created_at
-//     this.updated_at = updated_at
-//   }
-// }
-
-// type FighterCreate = {
-//   name: string;
-//   skill: string[];
-// }
-//
-// type FighterEdit = {
-//   name: string;
-//   skill: string[];
-// }
-
-// function toFighter(a: FighterCreate): Fighter {
-//   return new Fighter({ name: a.name, skill: a.skill })
-// }
-
 type StartupInfo = {
   pid: number;
   port: number;
@@ -82,7 +48,6 @@ await prisma.fighter.deleteMany({})
 const initData = [
   { name: "隆", skill: ["波动拳"].join(",") },
   { name: "肯", skill: ["升龙拳"].join(",") }
-
 ]
 for (const v of initData) {
   await prisma.fighter.create({
@@ -109,34 +74,41 @@ const FighterCreate = t.Object({
     pattern: name_pattern,
     error: `skill: 技能名称格式错误, 要求：${name_pattern_desc}`
   }))
-}
-)
+})
 
 const FighterEdit = t.Object({
   name: t.String(),
-  skill: t.Array(t.String({
-    pattern: name_pattern,
-    error: `skill: 技能名称格式错误, 要求：${name_pattern_desc}`
-  }
-  ))
-}
-)
+  skill: t.Array(
+    t.String({
+      pattern: name_pattern,
+      error: `skill: 技能名称格式错误, 要求：${name_pattern_desc}`
+    })
+  )
+})
 
 // ------ Server -------------
 
-new Elysia()
+const app = new Elysia()
+app
+  .onStart(() => {
+    console.log("server 启动中")
+  })
+  .onStop(async () => {
+    console.log("server 已关闭")
+    await prisma.$disconnect()
+  })
   .use(swagger({
-    path: "/about/swagger"
+    path: "/about/api", exclude: ["/about/api", "/about/api/json"]
   }))
   .use(cors())
   .group("/about", app =>
     app
       .get("", ({ request }) => {
         return [
+          "/api",
           "/startupinfo",
-          "/swagger",
           "/heapstats",
-          "/heapdump"
+          "/heapdump",
         ].map(v => request.url + v)
       }, {
         detail: {
@@ -156,16 +128,9 @@ new Elysia()
           tags: ["about"]
         }
       })
-      .get("/heapdump", () => {
-        const snapshot = generateHeapSnapshot();
-        return new Response(
-          JSON.stringify(snapshot, null, 2),
-          {
-            headers: {
-              "Content-Disposition": 'attachment; filename="heapdump.json"'
-            }
-          }
-        )
+      .get("/heapdump", ({ set }) => {
+        set.headers["Content-Disposition"] = 'attachment; filename="heapdump.json"'
+        return generateHeapSnapshot()
       }, {
         detail: {
           summary: "下载 js heap dump 文件",
@@ -206,6 +171,8 @@ new Elysia()
         })
         return ok(fighter_inserted)
       }, {
+
+        type: "json",
         body: FighterCreate,
         detail: {
           summary: "新增一个 fighter",
@@ -220,6 +187,7 @@ new Elysia()
         })
         return ok(fighter_updated)
       }, {
+        type: "json",
         body: FighterEdit,
         detail: {
           summary: "编辑一个 fighter",
@@ -237,6 +205,8 @@ new Elysia()
         }
       })
   )
-  .listen(startup_info.port);
+  .listen(startup_info.port, ({ hostname, port }) => {
+    console.log(`Running at http://${hostname}:${port}`)
+  });
 
 
