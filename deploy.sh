@@ -2,4 +2,4 @@
 
 DIR="$(dirname "$(realpath "$0")")"
 
-bun run $DIR/src/index.ts
+bun start

@@ -108,6 +108,10 @@ app
       exclude: ["/about/api", "/about/api/json"],
     })
   )
+  .group("/baseline", (app) =>
+    app.get("/text", () => "lost")
+      .get("/json", () => ok("lost"))
+  )
   .use(cors())
   .group("/about", (app) =>
     app
