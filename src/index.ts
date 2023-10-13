@@ -28,13 +28,15 @@ function err<T>(code: number, msg: string): Result<T> {
 type StartupInfo = {
   pid: number;
   port: number;
-  bun_version: string;
+  reusePort: boolean;
+  bunVersion: string;
 };
 
 const startup_info: StartupInfo = {
   pid: process.pid,
   port: 3000,
-  bun_version: Bun.version,
+  reusePort: true,
+  bunVersion: Bun.version,
 };
 console.log(`Startup info: ${JSON.stringify(startup_info)}`);
 
@@ -246,6 +248,6 @@ app
         }
       )
   )
-  .listen(startup_info.port, ({ hostname, port }) => {
+  .listen({ ...startup_info }, ({ hostname, port }) => {
     console.log(`Running at http://${hostname}:${port}`);
   });
