@@ -86,11 +86,25 @@ const prisma = new PrismaClient()
 
 # run app
 
+## start app with one instance
 ```shell
 bun src/index.ts
 ```
 or
 
 ```shell
-./deploy.sh
+bun start
+```
+
+or 
+
+```shell
+./deploy.sh 1
+```
+
+## start app with the specified number of instances
+
+```shell
+# start with 4 instances
+./deploy.sh 4
 ```
